@@ -24,7 +24,7 @@ NODES=(
     "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
     "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
     "https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git"
-    "https://github.com/rgthree/rgthree-comfy.git"
+    "https://github.com/rgthree/rgthree-comfy.git"  
     "https://github.com/crystian/ComfyUI-Crystools.git"
     "https://github.com/kijai/ComfyUI-KJNodes.git"
     "https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes.git"
@@ -32,7 +32,6 @@ NODES=(
     "https://github.com/Acly/comfyui-tooling-nodes.git"
     "https://github.com/evanspearman/ComfyMath.git"
     "https://github.com/Gourieff/ComfyUI-ReActor.git"
-
 )
 
 CHECKPOINT_MODELS=(
@@ -89,15 +88,13 @@ CONTROLNET_MODELS=(
     #"https://huggingface.co/webui/ControlNet-modules-safetensors/resolve/main/t2iadapter_style-fp16.safetensors"
 )
 
+# Define CLIP Vision models with their target filenames
+# Format: "source_url|target_filename"
 CLIP_VISION_MODELS=(
-    #"https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors"
-    #mv model.safetensors CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
-    #"https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors"
-    #mv model.safetensors CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors
-    #"https://huggingface.co/Kwai-Kolors/Kolors-IP-Adapter-Plus/resolve/main/image_encoder/pytorch_model.bin"
-    #mv pytorch_model.bin clip-vit-large-patch14-336.bin
-    #"https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors"
-    #mv model.safetensors clip_vision_SD1.5.safetensors
+    "https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors|CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+    "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors|CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors"
+    "https://huggingface.co/Kwai-Kolors/Kolors-IP-Adapter-Plus/resolve/main/image_encoder/pytorch_model.bin|clip-vit-large-patch14-336.bin"
+    "https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors|clip_vision_SD1.5.safetensors"
 )
 
 IP_ADAPTER_MODELS=(
@@ -136,16 +133,17 @@ function provisioning_start() {
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/esrgan" \
         "${ESRGAN_MODELS[@]}"
-    provisioning_get_models \
+    
+    # Handle CLIP Vision models with custom renaming
+    provisioning_get_clip_vision_models \
         "${WORKSPACE}/storage/stable_diffusion/models/clip_vision" \
         "${CLIP_VISION_MODELS[@]}"
+        
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ipadapter" \
         "${IP_ADAPTER_MODELS[@]}"
     provisioning_print_end
 }
-
-
 
 function pip_install() {
     if [[ -z $MAMBA_BASE ]]; then
@@ -210,6 +208,51 @@ function provisioning_get_models() {
     for url in "${arr[@]}"; do
         printf "Downloading: %s\n" "${url}"
         provisioning_download "${url}" "${dir}"
+        printf "\n"
+    done
+}
+
+# New function to handle CLIP vision models with renaming
+function provisioning_get_clip_vision_models() {
+    if [[ -z $2 ]]; then return 1; fi
+    
+    dir="$1"
+    mkdir -p "$dir"
+    shift
+    arr=("$@")
+    printf "Downloading %s CLIP vision model(s) to %s...\n" "${#arr[@]}" "$dir"
+    for model_info in "${arr[@]}"; do
+        # Split the URL and target filename
+        IFS='|' read -r url target_filename <<< "$model_info"
+        
+        # Extract the filename part from the URL
+        source_filename=$(basename "$url")
+        
+        printf "Downloading: %s as %s\n" "${url}" "${target_filename}"
+        
+        # Create a temporary directory for downloading
+        tmp_dir=$(mktemp -d)
+        
+        # Download to the temporary directory first
+        provisioning_download "${url}" "${tmp_dir}"
+        
+        # Move the downloaded file with the new name
+        if [ -f "${tmp_dir}/${source_filename}" ]; then
+            mv "${tmp_dir}/${source_filename}" "${dir}/${target_filename}"
+            printf "Renamed %s to %s\n" "${source_filename}" "${target_filename}"
+        else
+            # If the file has a different name, try to find it
+            downloaded_file=$(ls -1 "${tmp_dir}" | head -1)
+            if [ -n "$downloaded_file" ]; then
+                mv "${tmp_dir}/${downloaded_file}" "${dir}/${target_filename}"
+                printf "Renamed %s to %s\n" "${downloaded_file}" "${target_filename}"
+            else
+                printf "ERROR: Could not find downloaded file for %s\n" "${url}"
+            fi
+        fi
+        
+        # Clean up temporary directory
+        rm -rf "${tmp_dir}"
         printf "\n"
     done
 }
